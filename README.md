@@ -97,7 +97,7 @@ Instead, it offers high accuracy and real-time speed — perfect for lightweight
 ## 📹 Demo
 
 A full demonstration is available here:
-🔗 [LinkedIn Post / YouTube Demo Link](https://www.linkedin.com/in/syed-sarmad-shah)
+🔗 [LinkedIn Post / YouTube Demo Link](https://www.linkedin.com/in/syed-sarmad-shah-699806294/)
 
 ---
 
