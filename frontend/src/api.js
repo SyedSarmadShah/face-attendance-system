@@ -23,4 +23,18 @@ export const api = {
   stats: () => request('/api/stats'),
   analytics: (days = 30) => request(`/api/analytics?days=${days}`),
   startCamera: () => request('/api/start-camera', { method: 'POST' }),
+  
+  // Admin API
+  admin: {
+    getUsers: () => request('/api/admin/users'),
+    createUser: (username, password, role) => request('/api/admin/users', { 
+      method: 'POST', 
+      body: JSON.stringify({ username, password, role }) 
+    }),
+    updateUser: (userId, data) => request(`/api/admin/users/${userId}`, { 
+      method: 'PUT', 
+      body: JSON.stringify(data) 
+    }),
+    deleteUser: (userId) => request(`/api/admin/users/${userId}`, { method: 'DELETE' }),
+  },
 };

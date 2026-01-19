@@ -4,6 +4,7 @@ import TopBar from './TopBar';
 import StatsCards from './StatsCards';
 import AttendanceTable from './AttendanceTable';
 import Analytics from './Analytics';
+import AdminPanel from './AdminPanel';
 
 export default function Dashboard({ user, onLogout, onToast }) {
   const [records, setRecords] = useState([]);
@@ -56,7 +57,7 @@ export default function Dashboard({ user, onLogout, onToast }) {
             background: activeTab === 'attendance' ? '#4adede' : 'transparent',
             color: activeTab === 'attendance' ? '#0b1021' : '#9aa3c1',
             border: 'none',
-            borderRadius: '12px 0 0 12px',
+            borderRadius: user.role === 'admin' ? '12px 0 0 12px' : '12px 0 0 12px',
             cursor: 'pointer',
             fontWeight: 600
           }}
@@ -71,13 +72,30 @@ export default function Dashboard({ user, onLogout, onToast }) {
             background: activeTab === 'analytics' ? '#4adede' : 'transparent',
             color: activeTab === 'analytics' ? '#0b1021' : '#9aa3c1',
             border: 'none',
-            borderRadius: '0 12px 12px 0',
+            borderRadius: user.role === 'admin' ? '0' : '0 12px 12px 0',
             cursor: 'pointer',
             fontWeight: 600
           }}
         >
           📊 Analytics
         </button>
+        {user.role === 'admin' && (
+          <button
+            onClick={() => setActiveTab('admin')}
+            style={{
+              flex: 1,
+              padding: '12px 24px',
+              background: activeTab === 'admin' ? '#4adede' : 'transparent',
+              color: activeTab === 'admin' ? '#0b1021' : '#9aa3c1',
+              border: 'none',
+              borderRadius: '0 12px 12px 0',
+              cursor: 'pointer',
+              fontWeight: 600
+            }}
+          >
+            👥 Admin Panel
+          </button>
+        )}
       </div>
 
       {activeTab === 'attendance' && (
@@ -118,6 +136,8 @@ export default function Dashboard({ user, onLogout, onToast }) {
       )}
 
       {activeTab === 'analytics' && <Analytics onToast={onToast} />}
+      
+      {activeTab === 'admin' && user.role === 'admin' && <AdminPanel onToast={onToast} />}
     </div>
   );
 }

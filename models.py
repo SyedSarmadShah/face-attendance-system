@@ -15,6 +15,7 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(120), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
+    role = db.Column(db.String(20), default='teacher', nullable=False)  # admin, teacher, student
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     attendance_records = db.relationship('Attendance', backref='user', lazy=True, cascade='all, delete-orphan')
@@ -30,10 +31,19 @@ class User(db.Model):
         except:
             return False
     
+    def is_admin(self):
+        """Check if user is admin"""
+        return self.role == 'admin'
+    
+    def is_teacher(self):
+        """Check if user is teacher or admin"""
+        return self.role in ['admin', 'teacher']
+    
     def to_dict(self):
         return {
             'id': self.id,
             'username': self.username,
+            'role': self.role,
             'created_at': self.created_at.isoformat()
         }
 

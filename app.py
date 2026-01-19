@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 from sqlalchemy import func
+from functools import wraps
 
 app = Flask(__name__)
 app.secret_key = 'face-attendance-secret-key-2026'
@@ -41,7 +42,41 @@ CORS(app,
      supports_credentials=True, 
      origins=['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'],
      allow_headers=['Content-Type'],
-     methods=['GET', 'POST', 'OPTIONS'])
+     methods=['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'])
+
+# Authorization Decorators
+def login_required(f):
+    """Require user to be logged in"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'username' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+def admin_required(f):
+    """Require user to be admin"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'username' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        user = User.query.filter_by(username=session['username']).first()
+        if not user or not user.is_admin():
+            return jsonify({'error': 'Admin access required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
+
+def teacher_required(f):
+    """Require user to be teacher or admin"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'username' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        user = User.query.filter_by(username=session['username']).first()
+        if not user or not user.is_teacher():
+            return jsonify({'error': 'Teacher access required'}), 403
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Helper Functions
 def validate_input(username, password):
@@ -76,12 +111,21 @@ def init_db():
         db.create_all()
         logger.info("Database initialized")
         
+        # Create admin user if doesn't exist
+        if not User.query.filter_by(username='admin').first():
+            admin_user = User(username='admin', role='admin')
+            admin_user.set_password('admin123')
+            db.session.add(admin_user)
+            db.session.commit()
+            logger.info("Admin user created: admin/admin123")
+        
+        # Create demo teacher if doesn't exist
         if not User.query.filter_by(username='sarmad').first():
-            demo_user = User(username='sarmad')
+            demo_user = User(username='sarmad', role='teacher')
             demo_user.set_password('demo123')
             db.session.add(demo_user)
             db.session.commit()
-            logger.info("Demo user created")
+            logger.info("Demo teacher created: sarmad/demo123")
 
 # Routes
 @app.route('/')
@@ -159,11 +203,9 @@ def dashboard():
                          dataset_info=dataset_info)
 
 @app.route('/api/attendance')
+@login_required
 def api_attendance():
     """API endpoint to get attendance data"""
-    if 'username' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-    
     records = Attendance.query.all()
     today = date.today()
     today_attendance = Attendance.query.filter_by(date=today).all()
@@ -180,11 +222,9 @@ def api_attendance():
     })
 
 @app.route('/api/stats')
+@login_required
 def api_stats():
     """API endpoint to get system statistics"""
-    if 'username' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-    
     records = Attendance.query.all()
     dataset_info = get_dataset_info()
     today = date.today()
@@ -200,11 +240,9 @@ def api_stats():
     })
 
 @app.route('/api/analytics', methods=['GET'])
+@teacher_required
 def api_analytics():
     """Advanced analytics endpoint with trends and insights"""
-    if 'username' not in session:
-        return jsonify({'error': 'Not logged in'}), 401
-    
     from datetime import timedelta
     from sqlalchemy import extract
     
@@ -272,10 +310,9 @@ def api_analytics():
     })
 
 @app.route('/api/start-camera', methods=['POST'])
+@teacher_required
 def api_start_camera():
     """Start face_attendance camera script"""
-    if 'username' not in session:
-        return jsonify({'success': False, 'message': 'Not logged in'}), 401
     try:
         camera_script = os.path.join(BASE_DIR, 'face_attendance.py')
         subprocess.Popen([sys.executable, camera_script])
@@ -306,9 +343,91 @@ def api_session():
         return jsonify({
             'authenticated': True, 
             'username': session['username'],
-            'user_id': user.id if user else None
+            'user_id': user.id if user else None,
+            'role': user.role if user else 'student'
         })
     return jsonify({'authenticated': False}), 401
+
+# Admin Panel Routes
+@app.route('/api/admin/users', methods=['GET'])
+@admin_required
+def admin_get_users():
+    """Get all users (admin only)"""
+    users = User.query.all()
+    return jsonify({'users': [u.to_dict() for u in users]})
+
+@app.route('/api/admin/users', methods=['POST'])
+@admin_required
+def admin_create_user():
+    """Create new user (admin only)"""
+    data = request.get_json()
+    username = data.get('username', '').strip()
+    password = data.get('password', '')
+    role = data.get('role', 'student')
+    
+    valid, message = validate_input(username, password)
+    if not valid:
+        return jsonify({'success': False, 'message': message})
+    
+    if role not in ['admin', 'teacher', 'student']:
+        return jsonify({'success': False, 'message': 'Invalid role'})
+    
+    try:
+        if User.query.filter_by(username=username).first():
+            return jsonify({'success': False, 'message': 'Username already exists'})
+        
+        new_user = User(username=username, role=role)
+        new_user.set_password(password)
+        db.session.add(new_user)
+        db.session.commit()
+        
+        logger.info(f"Admin created user: {username} with role: {role}")
+        return jsonify({'success': True, 'message': f'User created successfully', 'user': new_user.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"User creation error: {e}")
+        return jsonify({'success': False, 'message': f'Error: {e}'})
+
+@app.route('/api/admin/users/<int:user_id>', methods=['PUT'])
+@admin_required
+def admin_update_user(user_id):
+    """Update user (admin only)"""
+    user = User.query.get_or_404(user_id)
+    data = request.get_json()
+    
+    try:
+        if 'role' in data and data['role'] in ['admin', 'teacher', 'student']:
+            user.role = data['role']
+        
+        if 'password' in data and data['password']:
+            user.set_password(data['password'])
+        
+        db.session.commit()
+        logger.info(f"Admin updated user: {user.username}")
+        return jsonify({'success': True, 'message': 'User updated', 'user': user.to_dict()})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Error: {e}'})
+
+@app.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
+@admin_required
+def admin_delete_user(user_id):
+    """Delete user (admin only)"""
+    user = User.query.get_or_404(user_id)
+    
+    # Prevent deleting self
+    current_user = User.query.filter_by(username=session['username']).first()
+    if current_user.id == user_id:
+        return jsonify({'success': False, 'message': 'Cannot delete your own account'})
+    
+    try:
+        db.session.delete(user)
+        db.session.commit()
+        logger.info(f"Admin deleted user: {user.username}")
+        return jsonify({'success': True, 'message': 'User deleted'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'success': False, 'message': f'Error: {e}'})
 
 if __name__ == '__main__':
     init_db()
@@ -317,13 +436,13 @@ if __name__ == '__main__':
     print("="*70)
     print("\n📱 Access the application at: http://localhost:5000")
     print("\n🔐 Features:")
-    print("   ✓ Teacher Login/Registration")
+    print("   ✓ Role-Based Access Control (Admin/Teacher/Student)")
     print("   ✓ Real-time attendance dashboard")
-    print("   ✓ Attendance statistics and records")
-    print("   ✓ SQLite Database Backend ⭐ NEW")
+    print("   ✓ Advanced analytics & reporting")
+    print("   ✓ SQLite Database Backend")
     print("\n💡 Demo Credentials:")
-    print("   Username: sarmad")
-    print("   Password: demo123")
+    print("   Admin:   username: admin   | password: admin123")
+    print("   Teacher: username: sarmad  | password: demo123")
     print("\n" + "="*70 + "\n")
     
     app.run(debug=True, host='localhost', port=5000)
