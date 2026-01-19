@@ -34,13 +34,21 @@ export default function LoginForm({ onLogin, onRegister, onToast }) {
       <h1 style={{ fontSize: 28, marginBottom: 12 }}>Welcome</h1>
       <p style={{ color: '#9aa3c1', marginBottom: 24 }}>Secure login for teachers</p>
 
+      {mode === 'login' && (
+        <div style={{ background: '#0f1729', padding: 12, borderRadius: 8, marginBottom: 16, fontSize: 12, color: '#a0afc9' }}>
+          <strong>🔓 Demo Credentials:</strong><br/>
+          Username: <code style={{ color: '#4adede' }}>sarmad</code><br/>
+          Password: <code style={{ color: '#4adede' }}>demo123</code>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <span style={{ color: '#c9d0e7', fontSize: 14 }}>Username</span>
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="your_username"
+            placeholder="e.g., sarmad"
             style={{ padding: 12, borderRadius: 10, background: '#0b1021', color: '#e9ecf5', border: '1px solid #1f2640' }}
           />
         </label>
@@ -50,7 +58,7 @@ export default function LoginForm({ onLogin, onRegister, onToast }) {
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="••••••••"
+            placeholder="e.g., demo123"
             style={{ padding: 12, borderRadius: 10, background: '#0b1021', color: '#e9ecf5', border: '1px solid #1f2640' }}
           />
         </label>

@@ -7,8 +7,10 @@ import csv
 import logging
 
 # Configuration
-DATASET_DIR = 'dataset' 
-CSV_FILE = 'attendance.csv'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+DATASET_DIR = os.path.join(BASE_DIR, 'dataset')
+CSV_FILE = os.path.join(DATA_DIR, 'attendance.csv')
 CONFIDENCE_THRESHOLD = 0.6  # Lower threshold = stricter matching (0-1)
 ATTENDANCE_CACHE = {}  # Track attendance within session
 
@@ -19,12 +21,18 @@ logger = logging.getLogger(__name__)
 known_encodings = []
 known_names = []
 
+# Ensure data directory exists
+os.makedirs(DATA_DIR, exist_ok=True)
+
 logger.info("Loading encodings...")
 
-for person_name in os.listdir(DATASET_DIR):
-    person_dir = os.path.join(DATASET_DIR, person_name)
-    if not os.path.isdir(person_dir):
-        continue
+if not os.path.isdir(DATASET_DIR):
+    logger.warning(f"Dataset directory not found at {DATASET_DIR}. No faces loaded.")
+else:
+    for person_name in os.listdir(DATASET_DIR):
+        person_dir = os.path.join(DATASET_DIR, person_name)
+        if not os.path.isdir(person_dir):
+            continue
 
     for img_name in os.listdir(person_dir):
         try:

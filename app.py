@@ -20,17 +20,27 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = False  # Set True if served over HTTPS
 
 # Configuration
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+DATASET_DIR = os.path.join(BASE_DIR, 'dataset')
+
+# Create data directory if it doesn't exist
+os.makedirs(DATA_DIR, exist_ok=True)
+
 FRONTEND_ORIGIN = os.getenv('FRONTEND_ORIGIN', 'http://localhost:5173')
-CREDENTIALS_FILE = 'teacher_credentials.csv'
-CSV_FILE = 'attendance.csv'
-DATASET_DIR = 'dataset'
+CREDENTIALS_FILE = os.path.join(DATA_DIR, 'teacher_credentials.csv')
+CSV_FILE = os.path.join(DATA_DIR, 'attendance.csv')
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Enable CORS for React frontend
-CORS(app, supports_credentials=True, origins=[FRONTEND_ORIGIN])
+# Enable CORS for React frontend (allow localhost on any port for development)
+CORS(app, 
+     supports_credentials=True, 
+     origins=['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'],
+     allow_headers=['Content-Type'],
+     methods=['GET', 'POST', 'OPTIONS'])
 
 # Helper Functions
 def hash_password(password):
@@ -245,7 +255,8 @@ def api_start_camera():
     if 'username' not in session:
         return jsonify({'success': False, 'message': 'Not logged in'}), 401
     try:
-        subprocess.Popen([sys.executable, 'face_attendance.py'])
+        camera_script = os.path.join(BASE_DIR, 'face_attendance.py')
+        subprocess.Popen([sys.executable, camera_script])
         return jsonify({'success': True, 'message': 'Camera started. A window should appear; press q to quit.'})
     except Exception as e:
         logger.error(f"Failed to start camera: {e}")
