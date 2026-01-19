@@ -1,111 +1,104 @@
-# 🎥 Face Attendance System
+# 🎥 Face Attendance System (Backend + React Frontend)
 
-An intelligent real-time Face Recognition-based Attendance System built using **Python**, **OpenCV**, and the `face_recognition` library. It uses face encodings to detect and identify individuals from a webcam feed and automatically logs attendance into a CSV file.
+Real-time face-recognition attendance with a Flask API and a React dashboard. Webcam captures faces, matches them against the dataset, and logs attendance to CSV with date/time. Secure login (hashed passwords), duplicate-prevention per day, and cross-platform camera launcher.
 
 ---
 
 ## 🚀 Features
 
-- 📷 Real-time webcam-based face detection
-- 🧠 Face recognition using pre-trained CNN model (via `face_recognition`)
-- 📅 Automatic attendance logging with name, date, and time
-- 📁 Folder-based dataset system (no need for manual training)
-- 📝 Attendance saved in `attendance.csv`
+- 📷 Real-time webcam face detection/recognition (OpenCV + face_recognition)
+- 🔐 Secure teacher login (bcrypt hashing) via Flask API
+- 🧠 Confidence threshold and duplicate prevention (one mark per person per day)
+- 🗂️ Dataset-per-person folders; encodings auto-loaded at startup
+- 📝 Attendance saved to CSV; dashboard shows records and stats
+- 🌐 React frontend with API calls, session handling, and camera launcher
 
 ---
 
 ## 💻 Technologies Used
 
-- **Python 3**
-- **OpenCV**
-- **face_recognition** (built on top of dlib + deep CNN)
-- **NumPy**
-- **CSV module**
+- **Python 3** (Flask, flask-cors)
+- **OpenCV**, **face_recognition**, **NumPy**
+- **bcrypt** for password hashing
+- **React + Vite** for the web UI
+- **CSV** for attendance storage
 
 ---
 
 ## 📁 Project Structure
 
 ```
-
 face-attendance-system/
-│
-├── main.py               # Main script to run the system
-├── attendance.csv        # Log file (auto-created)
-├── dataset/              # Folder containing images of known individuals
-│   ├── Sarmad/
-│   ├── Ammar/
-│   └── Umair/
-└── README.md             # This file
+├── app.py                 # Flask API (auth, stats, attendance, camera start)
+├── face_attendance.py     # Camera + recognition loop
+├── gui.py                 # Legacy Tkinter app (optional)
+├── attendance.csv         # Attendance log (auto-created)
+├── teacher_credentials.csv# Hashed credentials (auto-created)
+├── dataset/               # Images per person (one folder per identity)
+├── templates/             # Legacy Flask templates (not used by React)
+└── frontend/              # React + Vite SPA
+```
 
-````
-
-Each subfolder inside `/dataset` is treated as one person's identity. The system will load all face encodings at the start from here.
+Each subfolder inside `dataset/` is one person's identity. Images should contain a single clear face.
 
 ---
 
-## ⚙️ Setup Instructions
+## ⚙️ Setup
 
-### 1. Clone this repository
-
+### Backend (Flask)
 ```bash
-git clone https://github.com/SyedSarmadShah/face-attendance-system.git
 cd face-attendance-system
-````
+# activate your venv, then:
+pip install -r requirements.txt  # or install: flask flask-cors opencv-python face_recognition numpy bcrypt
 
-### 2. Install required packages
-
-```bash
-pip install opencv-python face_recognition numpy
+# start backend (allows React at port 5173 by default)
+FRONTEND_ORIGIN=http://localhost:5173 python app.py
 ```
 
-> `face_recognition` may require `cmake` and `dlib` depending on your system. Use `pip install cmake` or check official docs if needed.
-
----
-
-## ▶️ How to Run
-
-Make sure your webcam is connected, and run:
-
+### Frontend (React + Vite)
 ```bash
-python main.py
+cd face-attendance-system/frontend
+npm install
+npm run dev -- --host  # serves at http://localhost:5173
 ```
 
-Press `q` to quit the camera window.
+### Open the app
+- Visit: http://localhost:5173
+- Login or register; then click “Open Camera” to launch the desktop camera window (press `q` to quit).
+
+### Direct camera (without React)
+```bash
+python face_attendance.py  # press q to quit
+```
 
 ---
 
 ## 📦 Output
 
-* Recognized faces will be boxed with their names.
-* When a known face is detected, their attendance will be marked in `attendance.csv` with the date and time.
+- Camera window draws boxes + confidence scores; green for known, red for unknown.
+- Attendance logged to `attendance.csv` with Name, Date, Time (one entry per person per day).
 
 ---
 
-## ❓ Why Not CNN from Scratch?
+## ❓ Notes on Recognition
 
-This system uses a **pre-trained CNN under the hood**, via the `face_recognition` library. This avoids the need for:
-
-* Large datasets
-* Training custom neural networks
-* Long processing times
-
-Instead, it offers high accuracy and real-time speed — perfect for lightweight attendance systems.
+- Uses `face_recognition` (dlib CNN) for encodings and matching.
+- Confidence threshold is configurable in `face_attendance.py` (`CONFIDENCE_THRESHOLD`).
+- HOG model is used for fast face location; adjust to CNN if you need higher accuracy.
 
 ---
 
-## 📹 Demo
-
-A full demonstration is available here:
-🔗 [LinkedIn Post / YouTube Demo Link](https://www.linkedin.com/in/syed-sarmad-shah-699806294/)
+## 🧩 Dataset Tips
+- One folder per person under `dataset/`.
+- Use clear, front-facing images; one face per image.
+- Add images, then restart `face_attendance.py` so encodings reload.
 
 ---
 
 ## 🙌 Credits
 
 Developed by **Syed Sarmad Shah**
-Student of Artificial Neural Networks — HITEC University Taxila
-Feel free to contribute or fork the project!
+Contributions welcome.
 
 ---
 
