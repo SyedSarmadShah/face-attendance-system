@@ -199,6 +199,78 @@ def api_stats():
         'dataset_faces': dataset_info
     })
 
+@app.route('/api/analytics', methods=['GET'])
+def api_analytics():
+    """Advanced analytics endpoint with trends and insights"""
+    if 'username' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    from datetime import timedelta
+    from sqlalchemy import extract
+    
+    # Get date range from query params
+    days_back = int(request.args.get('days', 30))
+    start_date = date.today() - timedelta(days=days_back)
+    
+    # Daily attendance trend
+    daily_query = db.session.query(
+        Attendance.date,
+        func.count(Attendance.id).label('count')
+    ).filter(Attendance.date >= start_date).group_by(Attendance.date).order_by(Attendance.date).all()
+    
+    daily_trend = [{'date': str(d.date), 'count': d.count} for d in daily_query]
+    
+    # Attendance by person
+    person_query = db.session.query(
+        Attendance.name,
+        func.count(Attendance.id).label('count')
+    ).filter(Attendance.date >= start_date).group_by(Attendance.name).order_by(func.count(Attendance.id).desc()).all()
+    
+    attendance_by_person = [{'name': p.name, 'count': p.count} for p in person_query]
+    
+    # Weekly summary (last 4 weeks)
+    weekly_data = []
+    for week in range(4):
+        week_start = date.today() - timedelta(days=(week + 1) * 7)
+        week_end = date.today() - timedelta(days=week * 7)
+        week_count = Attendance.query.filter(
+            Attendance.date >= week_start,
+            Attendance.date < week_end
+        ).count()
+        weekly_data.append({
+            'week': f'Week {4-week}',
+            'count': week_count,
+            'start': str(week_start),
+            'end': str(week_end)
+        })
+    
+    # Attendance rate calculation
+    total_registered = len(get_dataset_info())
+    avg_daily_attendance = len(daily_trend) and sum(d['count'] for d in daily_trend) / len(daily_trend) or 0
+    attendance_rate = (avg_daily_attendance / total_registered * 100) if total_registered > 0 else 0
+    
+    # Peak attendance times (by hour)
+    time_query = db.session.query(
+        extract('hour', Attendance.time).label('hour'),
+        func.count(Attendance.id).label('count')
+    ).filter(Attendance.date >= start_date).group_by('hour').order_by('hour').all()
+    
+    peak_times = [{'hour': int(t.hour), 'count': t.count} for t in time_query]
+    
+    return jsonify({
+        'daily_trend': daily_trend,
+        'weekly_summary': weekly_data,
+        'attendance_by_person': attendance_by_person,
+        'peak_times': peak_times,
+        'attendance_rate': round(attendance_rate, 1),
+        'total_registered': total_registered,
+        'avg_daily_attendance': round(avg_daily_attendance, 1),
+        'date_range': {
+            'start': str(start_date),
+            'end': str(date.today())
+        }
+    })
+
 @app.route('/api/start-camera', methods=['POST'])
 def api_start_camera():
     """Start face_attendance camera script"""

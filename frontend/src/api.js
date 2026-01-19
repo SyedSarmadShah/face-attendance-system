@@ -21,5 +21,6 @@ export const api = {
   logout: () => request('/api/logout', { method: 'POST' }),
   attendance: () => request('/api/attendance'),
   stats: () => request('/api/stats'),
+  analytics: (days = 30) => request(`/api/analytics?days=${days}`),
   startCamera: () => request('/api/start-camera', { method: 'POST' }),
 };
