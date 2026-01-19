@@ -1,18 +1,22 @@
+"""
+Face Recognition & Attendance Marking with SQLite Database
+"""
+
 import cv2
 import face_recognition
 import os
 import numpy as np
-from datetime import datetime
-import csv
+from datetime import datetime, date
 import logging
+from models import db, Attendance
+from app import app
 
 # Configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 DATASET_DIR = os.path.join(BASE_DIR, 'dataset')
-CSV_FILE = os.path.join(DATA_DIR, 'attendance.csv')
-CONFIDENCE_THRESHOLD = 0.6  # Lower threshold = stricter matching (0-1)
-ATTENDANCE_CACHE = {}  # Track attendance within session
+CONFIDENCE_THRESHOLD = 0.6
+ATTENDANCE_CACHE = {}
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -34,62 +38,56 @@ else:
         if not os.path.isdir(person_dir):
             continue
 
-    for img_name in os.listdir(person_dir):
-        try:
-            img_path = os.path.join(person_dir, img_name)
-            image = face_recognition.load_image_file(img_path)
-            locations = face_recognition.face_locations(image)
+        for img_name in os.listdir(person_dir):
+            try:
+                img_path = os.path.join(person_dir, img_name)
+                image = face_recognition.load_image_file(img_path)
+                locations = face_recognition.face_locations(image)
 
-            if len(locations) != 1:
-                logger.warning(f"Skipping {img_name}: found {len(locations)} faces.")
-                continue
+                if len(locations) != 1:
+                    logger.warning(f"Skipping {img_name}: found {len(locations)} faces.")
+                    continue
 
-            encoding = face_recognition.face_encodings(image, known_face_locations=locations)[0]
-            known_encodings.append(encoding)
-            known_names.append(person_name)
-            logger.debug(f"Loaded: {person_name}/{img_name}")
-        except Exception as e:
-            logger.error(f"Error loading {img_name}: {e}")
+                encoding = face_recognition.face_encodings(image, known_face_locations=locations)[0]
+                known_encodings.append(encoding)
+                known_names.append(person_name)
+                logger.debug(f"Loaded: {person_name}/{img_name}")
+            except Exception as e:
+                logger.error(f"Error loading {img_name}: {e}")
 
 logger.info(f"Encodings loaded successfully. Total faces: {len(known_encodings)}")
 
-def mark_attendance(name):
-    """Mark attendance in CSV file, preventing duplicates within same day"""
+def mark_attendance(name, confidence=0.0):
+    """Mark attendance in database, preventing duplicates within same day"""
     try:
-        today = datetime.now().strftime('%Y-%m-%d')
+        today = date.today()
         
-        # Check session cache first (prevents multiple marks within minutes)
+        # Check session cache first
         if name in ATTENDANCE_CACHE and ATTENDANCE_CACHE[name] == today:
             return False
         
-        if not os.path.exists(CSV_FILE):
-            with open(CSV_FILE, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['Name', 'Date', 'Time'])
-
         # Check if already marked today
-        with open(CSV_FILE, 'r') as f:
-            reader = csv.reader(f)
-            next(reader)  # Skip header
-            for row in reader:
-                if len(row) >= 2 and row[0] == name and row[1] == today:
-                    logger.info(f"Attendance already marked for {name} today.")
-                    return False
-
+        existing = Attendance.query.filter_by(name=name, date=today).first()
+        if existing:
+            logger.info(f"Attendance already marked for {name} today.")
+            return False
+        
         # Mark new attendance
-        with open(CSV_FILE, 'a', newline='') as f:
-            writer = csv.writer(f)
-            now = datetime.now()
-            date = now.strftime('%Y-%m-%d')
-            time = now.strftime('%H:%M:%S')
-            writer.writerow([name, date, time])
+        with app.app_context():
+            new_record = Attendance(
+                name=name,
+                date=today,
+                time=datetime.now().time(),
+                confidence=confidence
+            )
+            db.session.add(new_record)
+            db.session.commit()
             ATTENDANCE_CACHE[name] = today
-            logger.info(f"Attendance marked: {name} at {time}")
+            logger.info(f"Attendance marked: {name} at {datetime.now().strftime('%H:%M:%S')} (confidence: {confidence:.2f})")
             return True
     except Exception as e:
         logger.error(f"Error marking attendance: {e}")
         return False
-
 
 try:
     cap = cv2.VideoCapture(0)
@@ -108,7 +106,7 @@ try:
         small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
         rgb_small = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
-        face_locations = face_recognition.face_locations(rgb_small, model='hog')  # Fast model
+        face_locations = face_recognition.face_locations(rgb_small, model='hog')
         face_encodings = face_recognition.face_encodings(rgb_small, face_locations)
 
         for face_encoding, face_location in zip(face_encodings, face_locations):
@@ -119,7 +117,7 @@ try:
             if face_distances[best_match_index] < CONFIDENCE_THRESHOLD:
                 name = known_names[best_match_index]
                 confidence = 1 - face_distances[best_match_index]
-                mark_attendance(name)
+                mark_attendance(name, confidence)
             else:
                 name = "Unknown"
                 confidence = 0

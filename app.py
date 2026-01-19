@@ -1,41 +1,42 @@
 """
-Flask Web Application for Face Attendance System
-Provides web-based UI for login, registration, and attendance viewing
+Flask Web Application for Face Attendance System with SQLite Database
 """
 
 from flask import Flask, render_template, request, jsonify, redirect, session
 from flask_cors import CORS
-import csv
+from models import db, User, Attendance, Dataset
 import os
-from datetime import datetime
+from datetime import datetime, date
 import logging
-import bcrypt
 import re
 import subprocess
 import sys
+from sqlalchemy import func
 
 app = Flask(__name__)
 app.secret_key = 'face-attendance-secret-key-2026'
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE'] = False  # Set True if served over HTTPS
+app.config['SESSION_COOKIE_SECURE'] = False
 
-# Configuration
+# Database Configuration
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
 DATASET_DIR = os.path.join(BASE_DIR, 'dataset')
 
-# Create data directory if it doesn't exist
 os.makedirs(DATA_DIR, exist_ok=True)
 
-FRONTEND_ORIGIN = os.getenv('FRONTEND_ORIGIN', 'http://localhost:5173')
-CREDENTIALS_FILE = os.path.join(DATA_DIR, 'teacher_credentials.csv')
-CSV_FILE = os.path.join(DATA_DIR, 'attendance.csv')
+DATABASE_URL = f'sqlite:///{os.path.join(DATA_DIR, "attendance.db")}'
+app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Setup logging
+db.init_app(app)
+
+FRONTEND_ORIGIN = os.getenv('FRONTEND_ORIGIN', 'http://localhost:5173')
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Enable CORS for React frontend (allow localhost on any port for development)
+# CORS Configuration
 CORS(app, 
      supports_credentials=True, 
      origins=['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174'],
@@ -43,17 +44,6 @@ CORS(app,
      methods=['GET', 'POST', 'OPTIONS'])
 
 # Helper Functions
-def hash_password(password):
-    """Hash password using bcrypt"""
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-def verify_password(password, hashed):
-    """Verify password against hash"""
-    try:
-        return bcrypt.checkpw(password.encode(), hashed.encode())
-    except:
-        return False
-
 def validate_input(username, password):
     """Validate username and password"""
     if not username or not password:
@@ -65,45 +55,6 @@ def validate_input(username, password):
     if not re.match("^[a-zA-Z0-9_]+$", username):
         return False, "Username must contain only letters, numbers, and underscores"
     return True, "Valid"
-
-def user_exists(username):
-    """Check if user already exists"""
-    if not os.path.exists(CREDENTIALS_FILE):
-        return False
-    with open(CREDENTIALS_FILE, 'r') as f:
-        reader = csv.reader(f)
-        next(reader, None)  # Skip header
-        for row in reader:
-            if len(row) > 0 and row[0] == username:
-                return True
-    return False
-
-def create_credentials_file():
-    """Create credentials file if it doesn't exist"""
-    if not os.path.exists(CREDENTIALS_FILE):
-        with open(CREDENTIALS_FILE, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Username', 'PasswordHash'])
-
-def create_attendance_file():
-    """Create attendance file if it doesn't exist"""
-    if not os.path.exists(CSV_FILE):
-        with open(CSV_FILE, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Name', 'Date', 'Time'])
-
-def get_attendance_records():
-    """Get all attendance records"""
-    if not os.path.exists(CSV_FILE):
-        return []
-    
-    records = []
-    with open(CSV_FILE, 'r') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row['Name']:  # Skip empty rows
-                records.append(row)
-    return records
 
 def get_dataset_info():
     """Get info about stored faces in dataset"""
@@ -119,10 +70,23 @@ def get_dataset_info():
     
     return faces
 
+def init_db():
+    """Initialize database"""
+    with app.app_context():
+        db.create_all()
+        logger.info("Database initialized")
+        
+        if not User.query.filter_by(username='sarmad').first():
+            demo_user = User(username='sarmad')
+            demo_user.set_password('demo123')
+            db.session.add(demo_user)
+            db.session.commit()
+            logger.info("Demo user created")
+
 # Routes
 @app.route('/')
 def index():
-    """Home page - redirect to dashboard if logged in"""
+    """Home page"""
     if 'username' in session:
         return redirect('/dashboard')
     return redirect('/login')
@@ -138,17 +102,12 @@ def login():
         if not username or not password:
             return jsonify({'success': False, 'message': 'Username and password required'})
         
-        create_credentials_file()
-        
         try:
-            with open(CREDENTIALS_FILE, 'r') as f:
-                reader = csv.reader(f)
-                next(reader, None)
-                for row in reader:
-                    if len(row) >= 2 and row[0] == username and verify_password(password, row[1]):
-                        session['username'] = username
-                        logger.info(f"Login successful: {username}")
-                        return jsonify({'success': True, 'message': 'Login successful'})
+            user = User.query.filter_by(username=username).first()
+            if user and user.check_password(password):
+                session['username'] = username
+                logger.info(f"Login successful: {username}")
+                return jsonify({'success': True, 'message': 'Login successful'})
         except Exception as e:
             logger.error(f"Login error: {e}")
             return jsonify({'success': False, 'message': f'Login error: {e}'})
@@ -169,19 +128,19 @@ def register():
     if not valid:
         return jsonify({'success': False, 'message': message})
     
-    create_credentials_file()
-    
-    if user_exists(username):
-        return jsonify({'success': False, 'message': 'Username already exists'})
-    
     try:
-        hashed_pwd = hash_password(password)
-        with open(CREDENTIALS_FILE, 'a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([username, hashed_pwd])
+        if User.query.filter_by(username=username).first():
+            return jsonify({'success': False, 'message': 'Username already exists'})
+        
+        new_user = User(username=username)
+        new_user.set_password(password)
+        db.session.add(new_user)
+        db.session.commit()
+        
         logger.info(f"New registration: {username}")
         return jsonify({'success': True, 'message': 'Registration successful! You can now login.'})
     except Exception as e:
+        db.session.rollback()
         logger.error(f"Registration error: {e}")
         return jsonify({'success': False, 'message': f'Registration error: {e}'})
 
@@ -191,13 +150,12 @@ def dashboard():
     if 'username' not in session:
         return redirect('/login')
     
-    create_attendance_file()
-    records = get_attendance_records()
+    records = Attendance.query.all()
     dataset_info = get_dataset_info()
     
     return render_template('dashboard.html', 
                          username=session['username'],
-                         attendance_records=records,
+                         attendance_records=[r.to_dict() for r in records],
                          dataset_info=dataset_info)
 
 @app.route('/api/attendance')
@@ -206,21 +164,18 @@ def api_attendance():
     if 'username' not in session:
         return jsonify({'error': 'Not logged in'}), 401
     
-    create_attendance_file()
-    records = get_attendance_records()
-    
-    # Calculate statistics
-    today = datetime.now().strftime('%Y-%m-%d')
-    today_attendance = [r for r in records if r.get('Date') == today]
+    records = Attendance.query.all()
+    today = date.today()
+    today_attendance = Attendance.query.filter_by(date=today).all()
     
     stats = {
         'total_records': len(records),
         'today_attendance': len(today_attendance),
-        'today_date': today
+        'today_date': today.isoformat()
     }
     
     return jsonify({
-        'records': records,
+        'records': [r.to_dict() for r in records],
         'stats': stats
     })
 
@@ -230,24 +185,19 @@ def api_stats():
     if 'username' not in session:
         return jsonify({'error': 'Not logged in'}), 401
     
-    create_attendance_file()
-    records = get_attendance_records()
+    records = Attendance.query.all()
     dataset_info = get_dataset_info()
-    
-    today = datetime.now().strftime('%Y-%m-%d')
-    today_attendance = [r for r in records if r.get('Date') == today]
-    
-    # Count unique people
-    unique_people = set(r.get('Name', '') for r in records if r.get('Name'))
+    today = date.today()
+    today_attendance = Attendance.query.filter_by(date=today).all()
+    unique_people = db.session.query(func.count(func.distinct(Attendance.name))).scalar()
     
     return jsonify({
         'total_faces_in_dataset': len(dataset_info),
         'total_attendance_records': len(records),
-        'unique_people': len(unique_people),
+        'unique_people': unique_people or 0,
         'today_attendance': len(today_attendance),
         'dataset_faces': dataset_info
     })
-
 
 @app.route('/api/start-camera', methods=['POST'])
 def api_start_camera():
@@ -269,7 +219,6 @@ def logout():
     logger.info("User logged out")
     return redirect('/login')
 
-
 @app.route('/api/logout', methods=['POST'])
 def api_logout():
     """API logout for React frontend"""
@@ -277,27 +226,32 @@ def api_logout():
     logger.info("User logged out (API)")
     return jsonify({'success': True})
 
-
 @app.route('/api/session', methods=['GET'])
 def api_session():
     """Return current session user"""
     if 'username' in session:
-        return jsonify({'authenticated': True, 'username': session['username']})
+        user = User.query.filter_by(username=session['username']).first()
+        return jsonify({
+            'authenticated': True, 
+            'username': session['username'],
+            'user_id': user.id if user else None
+        })
     return jsonify({'authenticated': False}), 401
 
 if __name__ == '__main__':
+    init_db()
     print("\n" + "="*70)
     print("🚀 FACE ATTENDANCE SYSTEM - WEB APPLICATION")
     print("="*70)
     print("\n📱 Access the application at: http://localhost:5000")
     print("\n🔐 Features:")
-    print("   ✓ Teacher Login/Registration with secure password hashing")
+    print("   ✓ Teacher Login/Registration")
     print("   ✓ Real-time attendance dashboard")
     print("   ✓ Attendance statistics and records")
-    print("   ✓ Dataset information display")
+    print("   ✓ SQLite Database Backend ⭐ NEW")
     print("\n💡 Demo Credentials:")
-    print("   Username: demo_teacher")
-    print("   Password: demo_pass_2026")
+    print("   Username: sarmad")
+    print("   Password: demo123")
     print("\n" + "="*70 + "\n")
     
     app.run(debug=True, host='localhost', port=5000)
